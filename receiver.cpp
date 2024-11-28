@@ -32,14 +32,34 @@ struct Packet {
 
 #define MAX_PACKET_SIZE (sizeof(Packet))
 
-// 计算校验和
+// 计算校验和（反码求和）
 unsigned short calculate_checksum(char* data) {
     unsigned short len = strlen(data);
     unsigned short checksum = 0;
-    for (int i = 0; i < len; i++) {
-        checksum += data[i];
+    unsigned short* ptr = (unsigned short*)data;  // 将数据视为16位单位的数组
+
+    // 对数据进行16位加法求和
+    for (int i = 0; i < len / 2; i++) {
+        checksum += ptr[i];
+
+        // 如果有进位，进行回卷
+        if (checksum > 0xFFFF) {
+            checksum = (checksum & 0xFFFF) + 1;
+        }
     }
-    return checksum;
+
+    // 如果数据长度是奇数，处理剩余的最后一个字节
+    if (len % 2 != 0) {
+        checksum += (unsigned short)(data[len - 1] << 8);
+
+        // 如果有进位，进行回卷
+        if (checksum > 0xFFFF) {
+            checksum = (checksum & 0xFFFF) + 1;
+        }
+    }
+
+    // 返回反码
+    return ~checksum;
 }
 
 // 发送数据包
