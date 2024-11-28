@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <Ws2tcpip.h>
 #include <string>
+#include <chrono>
 
 using namespace std;
 
@@ -93,12 +94,20 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
     // 超时重传次数
     int timeout = 0;
 
-    // 第二步：数据传输
+    // 记录文件的开始时间
+    auto start_time = chrono::high_resolution_clock::now();
+
+    // 数据传输
     ifstream file("send/" + filename, ios::binary);
     if (!file.is_open()) {
         cerr << "打开文件失败" << endl;
         return -1;
     }
+
+    // 获取文件大小
+    file.seekg(0, ios::end); // 移动到文件末尾
+    long file_size = file.tellg(); // 获取文件大小
+    file.seekg(0, ios::beg); // 将文件指针重置到文件开头
 
     while (!file.eof()) {
         Packet pkt;
@@ -138,7 +147,17 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
         }
     }
 
-    cout << "超时重传次数为：" << timeout << endl;
+    // 记录文件传输结束时间
+    auto end_time = chrono::high_resolution_clock::now();
+    chrono::duration<double> duration = end_time - start_time;
+
+    // 输出超时重传次数
+    cout << "超时重传次数为：" << timeout << " 次" << endl;
+
+    // 计算吞吐率（文件大小 / 传输时间）
+    double throughput = (double)file_size / duration.count(); // 吞吐率，单位字节/秒
+    cout << "文件传输时间: " << duration.count() << " 秒" << endl;
+    cout << "吞吐率: " << throughput / 1024 << " KB/s" << endl; // 吞吐率单位：KB/s
 
     file.close();
 
