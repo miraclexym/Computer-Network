@@ -1,10 +1,10 @@
 // sender.cpp
-
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <iostream>
 #include <fstream>
 #include <cstring>
-#include <winsock2.h>
-#include <Ws2tcpip.h>
 #include <string>
 #include <chrono>
 
@@ -206,7 +206,7 @@ int main() {
     sockaddr_in receiver_addr;
     receiver_addr.sin_family = AF_INET;  // 设置地址族为IPv4
     receiver_addr.sin_port = htons(PORT);  // 设置端口号
-    inet_pton(AF_INET, "127.0.0.1", &receiver_addr.sin_addr.s_addr);  // 设置IP地址
+    receiver_addr.sin_addr.s_addr = inet_addr("127.0.0.1");  // 设置IP地址
 
     // 三次握手第一步：发送SYN包
     Packet pkt0;
