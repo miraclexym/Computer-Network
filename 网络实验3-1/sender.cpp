@@ -10,7 +10,9 @@
 
 using namespace std;
 
-#define PORT 12345
+#define SERVER_PORT 20000       // 服务器端口
+#define CLIENT_PORT 10000       // 客户端端口
+#define IPADDR "127.0.0.1"      // IP地址设置为127.0.0.1
 #define MAX_FILENAME_SIZE 32
 #define MAX_DATA_SIZE 1024
 
@@ -62,7 +64,7 @@ unsigned short calculate_checksum(char* data) {
 }
 
 // 发送数据包
-void send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
+int send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
     // 计算校验和
     pkt.check_sum = calculate_checksum(pkt.data);
 
@@ -71,11 +73,13 @@ void send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
 
     if (sent_len == SOCKET_ERROR) {
         cerr << "发送数据包失败" << endl;
+        return -1;
     }
     else {
         cout << "发送数据包，发送序号：" << pkt.seq_num << "，确认序号：" << pkt.ack_num
             << ", 数据大小：" << pkt.data_len << ", 校验和：" << pkt.check_sum
             << "，ACK：" << pkt.ACK << "，SYN：" << pkt.SYN << "，FIN：" << pkt.FIN << endl;
+        return 0;
     }
 }
 
@@ -102,6 +106,12 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
         return -1;
     }
 
+    // 检验ACK
+    if (pkt_received.ACK && pkt_received.ack_num != seq_num_share) {
+        cout << "确认序号不正确，丢弃数据包" << endl;
+        return -1;
+    }
+
     cout << "接收数据包，发送序号：" << pkt_received.seq_num << "，确认序号：" << pkt_received.ack_num
         << ", 数据大小：" << pkt_received.data_len << ", 校验和：" << pkt_received.check_sum
         << "，ACK：" << pkt_received.ACK << "，SYN：" << pkt_received.SYN << "，FIN：" << pkt_received.FIN << endl;
@@ -110,14 +120,13 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
 }
 
 int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) {
-
     // 超时重传次数
     int timeout = 0;
 
     // 记录文件的开始时间
     auto start_time = chrono::high_resolution_clock::now();
 
-    // 数据传输
+    // 打开文件
     ifstream file("send/" + filename, ios::binary);
     if (!file.is_open()) {
         cerr << "打开文件失败" << endl;
@@ -128,6 +137,10 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
     file.seekg(0, ios::end); // 移动到文件末尾
     long file_size = file.tellg(); // 获取文件大小
     file.seekg(0, ios::beg); // 将文件指针重置到文件开头
+
+    // 设置接收超时时间，单位为毫秒
+    int timeout_ms = 1000; // 1秒超时
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 
     while (!file.eof()) {
         Packet pkt;
@@ -151,15 +164,26 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
         int ack_len = recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&sender_addr, &sender_len);
 
         if (ack_len == SOCKET_ERROR) {
-            cerr << "接收ACK超时，重新发送数据包：" << pkt.seq_num << endl;
-            timeout++;
-            seq_num_share--;
-            continue;  // 超时重传
+            int err = WSAGetLastError();
+            if (err == WSAETIMEDOUT) {
+                // 如果超时，打印重传信息
+                cerr << "接收ACK超时，重新发送数据包：" << pkt.seq_num << endl;
+                timeout++;
+                seq_num_share--;  // 回退序号，重新发送当前数据包
+                file.seekg(-read_len, ios::cur);  // 回退文件指针，重新读取当前数据块
+                continue;  // 超时重传
+            }
+            else {
+                cerr << "recvfrom 错误，错误码：" << err << endl;
+                break;
+            }
         }
 
+        // 解析收到的ACK包
         Packet pkt_received;
         memcpy(&pkt_received, buffer, sizeof(pkt_received));
 
+        // 输出收到的ACK信息
         if (pkt_received.ACK && pkt_received.data_len == 0) {
             cout << "接收数据包，发送序号：" << pkt_received.seq_num << "，确认序号：" << pkt_received.ack_num
                 << ", 数据大小：" << pkt_received.data_len << ", 校验和：" << pkt_received.check_sum
@@ -202,11 +226,23 @@ int main() {
         return -1;
     }
 
-    // 创建对方地址
+    // 创建接收方地址
     sockaddr_in receiver_addr;
     receiver_addr.sin_family = AF_INET;  // 设置地址族为IPv4
-    receiver_addr.sin_port = htons(PORT);  // 设置端口号
-    receiver_addr.sin_addr.s_addr = inet_addr("127.0.0.1");  // 设置IP地址
+    receiver_addr.sin_port = htons(SERVER_PORT);  // 设置服务器端口号为20000
+    receiver_addr.sin_addr.s_addr = inet_addr(IPADDR);  // 设置IP地址为127.0.0.1
+
+    // 创建本地客户端地址
+    sockaddr_in client_addr;
+    client_addr.sin_family = AF_INET;  // 设置地址族为IPv4
+    client_addr.sin_port = htons(CLIENT_PORT);  // 设置客户端端口号为10000
+    client_addr.sin_addr.s_addr = inet_addr(IPADDR);  // 设置客户端IP地址为127.0.0.1
+
+    // 绑定客户端套接字到本地端口
+    if (bind(sock, (struct sockaddr*)&client_addr, sizeof(client_addr)) == SOCKET_ERROR) {
+        cerr << "绑定套接字失败" << endl;
+        return -1;
+    }
 
     // 三次握手第一步：发送SYN包
     Packet pkt0;

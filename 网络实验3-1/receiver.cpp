@@ -9,7 +9,9 @@
 
 using namespace std;
 
-#define PORT 12345
+#define SERVER_PORT 30000       // 服务器端口
+#define CLIENT_PORT 20000       // 客户端端口
+#define IPADDR "127.0.0.1"      // IP地址设置为127.0.0.1
 #define MAX_FILENAME_SIZE 32
 #define MAX_DATA_SIZE 1024
 
@@ -63,7 +65,7 @@ unsigned short calculate_checksum(char* data) {
 }
 
 // 发送数据包
-void send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
+int send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
     // 计算校验和
     pkt.check_sum = calculate_checksum(pkt.data);
 
@@ -72,11 +74,13 @@ void send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
 
     if (sent_len == SOCKET_ERROR) {
         cerr << "发送数据包失败" << endl;
+        return -1;
     }
     else {
         cout << "发送数据包，发送序号：" << pkt.seq_num << "，确认序号：" << pkt.ack_num
             << ", 数据大小：" << pkt.data_len << ", 校验和：" << pkt.check_sum
             << "，ACK：" << pkt.ACK << "，SYN：" << pkt.SYN << "，FIN：" << pkt.FIN << endl;
+        return 0;
     }
 }
 
@@ -100,6 +104,12 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
     // 校验和出错
     if (pkt_received.check_sum != calculated_checksum) {
         cerr << "接收校验和：" << pkt_received.check_sum << "，计算校验和：" << calculated_checksum << "，校验和错误，丢弃数据包";
+        return -1;
+    }
+
+    // 检验ACK
+    if (pkt_received.ACK && pkt_received.ack_num != seq_num_share) {
+        cout << "确认序号不正确，丢弃数据包" << endl;
         return -1;
     }
 
@@ -200,21 +210,27 @@ int main() {
         return -1;
     }
 
-    // 创建对方地址
-    sockaddr_in sender_addr;
-    sender_addr.sin_family = AF_INET;  // 设置地址族为IPv4
-    sender_addr.sin_port = htons(PORT);  // 设置端口号
-    sender_addr.sin_addr.s_addr = inet_addr("127.0.0.1");  // 设置IP地址
+    // 创建服务器地址
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;  // 设置地址族为IPv4
+    server_addr.sin_port = htons(SERVER_PORT);  // 设置端口号为30000
+    server_addr.sin_addr.s_addr = inet_addr(IPADDR);  // 设置IP地址为127.0.0.1
 
     // 绑定套接字
-    if (bind(sock, (struct sockaddr*)&sender_addr, sizeof(sender_addr)) == SOCKET_ERROR) {
+    if (bind(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
         cerr << "绑定套接字失败" << endl;
         return -1;
     }
 
+    // 创建客户端地址
+    sockaddr_in client_addr;
+    client_addr.sin_family = AF_INET;  // 设置地址族为IPv4
+    client_addr.sin_port = htons(CLIENT_PORT);  // 设置客户端端口号为20000
+    client_addr.sin_addr.s_addr = inet_addr(IPADDR);  // 设置客户端IP地址为127.0.0.1
+
     // 循环处理
     while (true) {
-        int end = handle_packet(sock, sender_addr);  // 接收数据包并处理
+        int end = handle_packet(sock, client_addr);  // 接收数据包并处理
         if (end == -1)
             break;
     }
