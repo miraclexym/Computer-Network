@@ -95,7 +95,7 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
 
     if (recv_len == SOCKET_ERROR) {
         cerr << "接收数据包失败" << endl;
-        return -1;
+        return 0;
     }
 
     // 提取数据包内容
@@ -107,24 +107,38 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
     // 检查校验和
     if (pkt_received.check_sum != calculated_checksum) {
         cerr << "接收校验和：" << pkt_received.check_sum << "，计算校验和：" << calculated_checksum << "，校验和错误，丢弃数据包" << endl;
-        return -1;
+        return 0;
     }
 
-    // 检查确认序号是否正确（客户端发送数据包，服务器返回确认序号）
-    if (pkt_received.ACK && pkt_received.ack_num != ack_num_expected && !pkt_received.FIN && !pkt_received.SYN) {
-        cout << "预期确认序号：" << ack_num_expected << "，实际确认序号：" << pkt_received.ack_num << "，确认序号不正确，丢弃数据包" << endl;
-        return -1;
+    // 检查确认序号（客户端发送数据包，服务器返回确认序号）
+    // cout << "预期确认序号：" << ack_num_expected << "，实际确认序号：" << pkt_received.ack_num << "，确认序号不正确，丢弃数据包" << endl;
+    if (pkt_received.ACK && !pkt_received.FIN && !pkt_received.SYN) { // 服务器返回确认序号
+        if (pkt_received.ack_num == ack_num_expected) { // 如果恰好是预期的ACK
+            // 更新预期确认序号
+            ack_num_expected++; // 接收到一个ACK，滑动窗口 (pkt_received.ack_num + 1 - ack_num_expected)
+
+            // 发送数据包的内容
+            cout << "接收数据包，发送序号：" << pkt_received.seq_num << "，确认序号：" << pkt_received.ack_num
+                << ", 数据大小：" << pkt_received.data_len << ", 校验和：" << pkt_received.check_sum
+                << "，ACK：" << pkt_received.ACK << "，SYN：" << pkt_received.SYN << "，FIN：" << pkt_received.FIN << endl;
+
+            return 1; // 接收到一个ACK，滑动窗口 (pkt_received.ack_num + 1 - ack_num_expected)
+        }
+        else if (pkt_received.ack_num > ack_num_expected) { // 累积确认实现
+            // 更新预期确认序号
+            ack_num_expected = pkt_received.ack_num + 1; // 接收到一个ACK，滑动窗口 (pkt_received.ack_num + 1 - ack_num_expected)
+
+            // 发送数据包的内容
+            cout << "接收数据包，发送序号：" << pkt_received.seq_num << "，确认序号：" << pkt_received.ack_num
+                << ", 数据大小：" << pkt_received.data_len << ", 校验和：" << pkt_received.check_sum
+                << "，ACK：" << pkt_received.ACK << "，SYN：" << pkt_received.SYN << "，FIN：" << pkt_received.FIN << endl;
+
+            return (pkt_received.ack_num + 1 - ack_num_expected); // 接收到一个ACK，滑动窗口 (pkt_received.ack_num + 1 - ack_num_expected)
+        }
+        else {
+            return 0;
+        }
     }
-
-    // 更新预期确认序号
-    ack_num_expected++;
-
-    // 发送数据包的内容
-    cout << "接收数据包，发送序号：" << pkt_received.seq_num << "，确认序号：" << pkt_received.ack_num
-        << ", 数据大小：" << pkt_received.data_len << ", 校验和：" << pkt_received.check_sum
-        << "，ACK：" << pkt_received.ACK << "，SYN：" << pkt_received.SYN << "，FIN：" << pkt_received.FIN << endl;
-
-    return 0;
 }
 
 // 发送文件
@@ -186,8 +200,9 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
         for (int i = 0; i < receive_num; i++) {
             Packet pkt_received;
             int result = receive_packet(sock, receiver_addr, pkt_received);
-            if (result == 0) {
-                send_queue.pop();
+            if (result > 0) {
+                for (int i = 0; i < result; i++)
+                    send_queue.pop();
                 cout << "接收窗口确认新数据包，发送窗口大小：" << WINDOW_SIZE
                     << "，已用分组数量：" << send_queue.size() << "，可用分组数量：" << WINDOW_SIZE - send_queue.size() << endl;
             }
