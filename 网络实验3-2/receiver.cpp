@@ -132,6 +132,8 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
     if (pkt_received.seq_num < seq_num_expected) {
         return 1;
     }
+
+    return 0;
 }
 
 // 处理数据包
