@@ -155,8 +155,6 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 
     while (!file.eof()) { // 读取文件，滑动窗口发送数据包，接收确认数据包
-        // 更新预期确认序号
-        ack_num_expected = seq_num_share + 1;
 
         // 发送窗口填充数据包
         while (send_queue.size() < WINDOW_SIZE && !file.eof()) {
@@ -171,6 +169,9 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
             cout << "发送窗口填入新数据包，发送窗口大小：" << WINDOW_SIZE 
                 << "，已用分组数量：" << send_queue.size() << "，可用分组数量：" << WINDOW_SIZE - send_queue.size() << endl;
         }
+
+        // 更新预期确认序号
+        ack_num_expected = send_queue.front().seq_num + 1;
 
         // 发送窗口发送数据包
         queue<Packet> tempQueue = send_queue;  // 复制队列，避免改变原队列内容
@@ -194,7 +195,7 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
                 // 超时处理：如果接收超时，则进行重传
                 timeout++;
                 cout << "ACK超时，重新发送窗口内数据包，当前累积重传次数：" << timeout << endl;
-                // break; // 下一次 while 循环，重新发送窗口内数据包
+                break; // 下一次 while 循环，重新发送窗口内数据包
             }
         }
     }

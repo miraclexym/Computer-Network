@@ -15,8 +15,8 @@ int seq_num_expected = 37;      // 预期对方发送序号
 bool three_handshakes = false;  // 三次握手标志位
 bool waving_four_times = false; // 四次挥手标志位
 
-#define SERVER_PORT 20000       // 服务器端口
-#define CLIENT_PORT 10000       // 客户端端口
+#define SERVER_PORT 30000       // 服务器端口
+#define CLIENT_PORT 20000       // 客户端端口
 #define IPADDR "127.0.0.1"      // IP地址设置为127.0.0.1
 #define MAX_FILENAME_SIZE 32    // 最大文件名称长度
 #define MAX_DATA_SIZE 1024      // 最大发送数据长度
