@@ -67,7 +67,7 @@ unsigned short calculate_checksum(char* data) {
     return ~checksum;
 }
 
-// 发送数据包
+// 发送数据包（接收端）
 int send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
     // 计算校验和
     pkt.check_sum = calculate_checksum(pkt.data);
@@ -87,7 +87,7 @@ int send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
     }
 }
 
-//接收数据包
+//接收数据包（接收端）
 int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_received) {
     int len = sizeof(sender_addr);
     char buffer[MAX_PACKET_SIZE];
@@ -110,21 +110,28 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
         return -1;
     }
 
-    // 检查发送序号是否有序（可能会丢包）
-    if (pkt_received.seq_num != seq_num_expected) {
+    // 接收到错误的数据包
+    if (pkt_received.seq_num > seq_num_expected) {
         cerr << "期望序号：" << seq_num_expected << "，接收序号：" << pkt_received.seq_num << "，序号不正确，丢弃数据包" << endl;
         return -1;
     }
-
-    // 更新预期发送序号
-    seq_num_expected++;
 
     // 发送数据包的内容
     cout << "接收数据包，发送序号：" << pkt_received.seq_num << "，确认序号：" << pkt_received.ack_num
         << ", 数据大小：" << pkt_received.data_len << ", 校验和：" << pkt_received.check_sum
         << "，ACK：" << pkt_received.ACK << "，SYN：" << pkt_received.SYN << "，FIN：" << pkt_received.FIN << endl;
 
-    return 0;
+    // 接收到正确的数据包
+    if (pkt_received.seq_num == seq_num_expected) {
+        // 更新预期发送序号
+        seq_num_expected++;
+        return 0;
+    }
+
+    // 接收到重复的数据包
+    if (pkt_received.seq_num < seq_num_expected) {
+        return 1;
+    }
 }
 
 // 处理数据包
@@ -133,8 +140,20 @@ int handle_packet(SOCKET& sock, struct sockaddr_in& sender_addr, queue<Packet>& 
     // 接收数据包
     Packet pkt_received;
     int ret = receive_packet(sock, sender_addr, pkt_received);
-    if (ret == -1)
+
+    // 特殊情况判断
+    if (ret == -1) { // 接收到错误的数据包
         return 0;
+    }
+    if (ret == 1) { // 接收到重复的数据包
+        // 发送ACK包
+        Packet pkt;
+        pkt.ACK = true;
+        pkt.seq_num = seq_num_share++;
+        pkt.ack_num = pkt_received.seq_num + 1;
+        send_packet(sock, sender_addr, pkt);
+        return 0;
+    }
 
     // 处理三次握手
     if (pkt_received.SYN) {

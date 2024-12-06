@@ -67,7 +67,7 @@ unsigned short calculate_checksum(char* data) {
     return ~checksum;
 }
 
-// 发送数据包
+// 发送数据包（发送端）
 int send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
     // 计算校验和
     pkt.check_sum = calculate_checksum(pkt.data);
@@ -87,7 +87,7 @@ int send_packet(SOCKET& sock, struct sockaddr_in& receiver_addr, Packet& pkt) {
     }
 }
 
-//接收数据包
+//接收数据包（发送端）
 int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_received) {
     int len = sizeof(sender_addr);
     char buffer[MAX_PACKET_SIZE];
@@ -151,6 +151,7 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
     file.seekg(0, ios::beg); // 将文件指针重置到文件开头
 
     // 设置接收超时时间，单位为毫秒
+    int timeout_ms = 100;  // 毫秒超时
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 
     while (!file.eof()) { // 读取文件，滑动窗口发送数据包，接收确认数据包
@@ -180,12 +181,21 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
 
         // 发送窗口接收数据包
         int receive_num = send_queue.size();
+        // 如果接收服务器的数据包超时（1ms），就重新把发送窗口里面剩下的数据包发送一次
         for (int i = 0; i < receive_num; i++) {
             Packet pkt_received;
-            receive_packet(sock, receiver_addr, pkt_received);
-            send_queue.pop();
-            cout << "接收窗口确认新数据包，发送窗口大小：" << WINDOW_SIZE 
-                << "，已用分组数量：" << send_queue.size() << "，可用分组数量：" << WINDOW_SIZE - send_queue.size() << endl;
+            int result = receive_packet(sock, receiver_addr, pkt_received);
+            if (result == 0) {
+                send_queue.pop();
+                cout << "接收窗口确认新数据包，发送窗口大小：" << WINDOW_SIZE
+                    << "，已用分组数量：" << send_queue.size() << "，可用分组数量：" << WINDOW_SIZE - send_queue.size() << endl;
+            }
+            else {
+                // 超时处理：如果接收超时，则进行重传
+                timeout++;
+                cout << "ACK超时，重新发送窗口内数据包，当前累积重传次数：" << timeout << endl;
+                // break; // 下一次 while 循环，重新发送窗口内数据包
+            }
         }
     }
 
