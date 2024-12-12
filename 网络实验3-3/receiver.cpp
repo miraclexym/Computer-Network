@@ -14,6 +14,8 @@ int seq_num_share = 61;         // 共享自己发送序号
 int seq_num_expected = 37;      // 预期对方发送序号
 bool three_handshakes = false;  // 三次握手标志位
 bool waving_four_times = false; // 四次挥手标志位
+int MAX_MIS_COUNT = 100000;       // 丢包变量
+int mis_count = 0;              // 丢包变量
 
 #define SERVER_PORT 20000       // 服务器端口
 #define CLIENT_PORT 10000       // 客户端端口
@@ -107,6 +109,12 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
     // 检查校验和
     if (pkt_received.check_sum != calculated_checksum) {
         cerr << "接收校验和：" << pkt_received.check_sum << "，计算校验和：" << calculated_checksum << "，校验和错误，丢弃数据包" << endl;
+        return -1;
+    }
+
+    mis_count++; // 每收到一定数量的数据包就丢包一次
+    if (mis_count >= MAX_MIS_COUNT) {
+        mis_count = 0;
         return -1;
     }
 

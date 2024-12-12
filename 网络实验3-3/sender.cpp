@@ -132,7 +132,7 @@ int receive_packet(SOCKET& sock, struct sockaddr_in& sender_addr, Packet& pkt_re
             ack_num_expected = pkt_received.ack_num + 1; // 接收到一个ACK，滑动窗口 (pkt_received.ack_num + 1 - ack_num_expected)
             return (pkt_received.ack_num + 1 - ack_num_expected); // 接收到一个ACK，滑动窗口 (pkt_received.ack_num + 1 - ack_num_expected)
         }
-        else if (pkt_received.ack_num == ack_num_expected - 1) { //快速重传 // 例如预期：ACK3，但是返回ACK2、ACK2、ACK2
+        else if (pkt_received.ack_num < ack_num_expected) { //快速重传 // 例如预期：ACK3，但是返回ACK2、ACK2、ACK2
             return -1;
         }
     }
@@ -147,6 +147,9 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
 
     // 超时重传次数
     int timeout = 0;
+
+    // 快速重传次数
+    int quickcount = 0;
 
     // 记录文件的开始时间
     auto start_time = chrono::high_resolution_clock::now();
@@ -167,7 +170,7 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
     int timeout_ms = 100;  // 毫秒超时
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout_ms, sizeof(timeout_ms));
 
-    while (!file.eof()) { // 读取文件，滑动窗口发送数据包，接收确认数据包
+    while (!file.eof() || !send_queue.empty()) { // 读取文件，滑动窗口发送数据包，接收确认数据包
 
         // 发送窗口填充数据包
         while (send_queue.size() < window_size && !file.eof()) {
@@ -242,6 +245,7 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
                 else {
                     dupACKcount++;
                     if (dupACKcount == 3) {
+                        quickcount++;
                         Reno_State = Quick_Recovery; // 快速恢复阶段
                         cout << "发送端进入快速恢复状态" << endl;
                         ssthresh = window_size / 2 > 0 ? window_size / 2 : 1; // 设置阈值
@@ -276,6 +280,9 @@ int send_file(SOCKET& sock, struct sockaddr_in& receiver_addr, string filename) 
 
     // 输出超时重传次数
     cout << "超时重传次数为：" << timeout << " 次" << endl;
+
+    // 输出快速重传次数
+    cout << "快速重传次数为：" << quickcount << " 次" << endl;
 
     // 计算吞吐率（文件大小 / 传输时间）
     double throughput = (double)file_size / duration.count(); // 吞吐率，单位字节/秒
